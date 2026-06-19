@@ -1,0 +1,34 @@
+%+ Classes and associations
+
+%  Person(P0, P1)
+%  Patient(P0, P1)
+%  Doctor(D0, D1)
+%  Appointment(A0, A1)
+%  attends(D0, A0)
+%  schedules(P0, A0)
+
+%+ Constraints for hierarchies
+
+isPersonAux(P0) :- Person(P0, P1)
+  @1 :- Patient(P0, P1), not(isPersonAux(P0))
+  @2 :- Doctor(D0, D1), not(isPersonAux(D0))
+
+%+ Constraints for associations
+
+isDoctorAux(D0) :- Doctor(D0, D1)
+isAppointmentAux(A0) :- Appointment(A0, A1)
+isPatientAux(P0) :- Patient(P0, P1)
+
+  @3 :- attends(D0, A0), not(isDoctorAux(D0))
+  @4 :- attends(D0, A0), not(isAppointmentAux(A0))
+  @5 :- schedules(P0, A0), not(isPatientAux(P0))
+  @6 :- schedules(P0, A0), not(isAppointmentAux(A0))
+
+%+ Constraints for association cardinalities
+
+  Minattends_Doctor(A0) :- attends(D0, A0)
+  @7 :- Appointment(A0, A1), not(Minattends_Doctor(A0))
+  @8 :- attends(L0, A0), attends(L1, A0), L1<>L0
+  Minschedules_Patient(A0) :- schedules(P0, A0)
+  @9 :- Appointment(A0, A1), not(Minschedules_Patient(A0))
+  @10 :- schedules(L0, A0), schedules(L1, A0), L1<>L0
