@@ -18,32 +18,43 @@ import java.util.zip.ZipOutputStream;
 @Service
 public class GeneratedFilesService {
 
-    private static final Path GENERATED_ROOT = Path.of("target", "generated");
     private static final String JAVA_PACKAGE = "generated";
     private static final String LIVELINESS_PACKAGE = "generated.liveness";
+
+    private final Path generatedRoot;
+
+    public GeneratedFilesService() {
+        this(Path.of("target", "generated"));
+    }
+
+    GeneratedFilesService(Path generatedRoot) {
+        this.generatedRoot = generatedRoot;
+    }
 
     public List<GeneratedFileInfo> generateFromPlantUml(String plantUml) throws IOException {
         if (plantUml == null || plantUml.isBlank()) {
             throw new IllegalArgumentException("plantUml is required");
         }
-        Files.createDirectories(GENERATED_ROOT);
+        clearGeneratedDirectory();
+        Files.createDirectories(generatedRoot);
         // Use non-LLM generation path so backend works without GEMINI_API_KEY.
-        PlantUmlPipeline.generateDatalogAndJson(plantUml, GENERATED_ROOT);
-        PlantUmlPipeline.generateJavaAndSqlFromUmlMetamodel(plantUml, GENERATED_ROOT, JAVA_PACKAGE, LIVELINESS_PACKAGE);
+        PlantUmlPipeline.generateDatalogAndJson(plantUml, generatedRoot);
+        PlantUmlPipeline.generateJavaAndSqlFromUmlMetamodel(
+                plantUml, generatedRoot, JAVA_PACKAGE, LIVELINESS_PACKAGE);
         return listGeneratedFiles();
     }
 
     public List<GeneratedFileInfo> listGeneratedFiles() throws IOException {
-        if (!Files.exists(GENERATED_ROOT)) return List.of();
+        if (!Files.exists(generatedRoot)) return List.of();
 
         List<GeneratedFileInfo> files = new ArrayList<>();
-        try (Stream<Path> stream = Files.walk(GENERATED_ROOT)) {
+        try (Stream<Path> stream = Files.walk(generatedRoot)) {
             stream
-                    .filter(path -> !path.equals(GENERATED_ROOT))
+                    .filter(path -> !path.equals(generatedRoot))
                     .sorted(Comparator.comparing(Path::toString))
                     .forEach(path -> {
                         boolean isDirectory = Files.isDirectory(path);
-                        String relative = GENERATED_ROOT.relativize(path).toString().replace("\\", "/");
+                        String relative = generatedRoot.relativize(path).toString().replace("\\", "/");
                         String name = path.getFileName().toString();
                         long size = isDirectory ? 0L : safeFileSize(path);
                         files.add(new GeneratedFileInfo(name, relative, isDirectory, size));
@@ -61,16 +72,16 @@ public class GeneratedFilesService {
     }
 
     public byte[] buildGeneratedFilesZip() throws IOException {
-        if (!Files.exists(GENERATED_ROOT)) return new byte[0];
+        if (!Files.exists(generatedRoot)) return new byte[0];
 
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              ZipOutputStream zipOutputStream = new ZipOutputStream(baos)) {
 
-            try (Stream<Path> stream = Files.walk(GENERATED_ROOT)) {
+            try (Stream<Path> stream = Files.walk(generatedRoot)) {
                 stream.filter(path -> !Files.isDirectory(path))
                         .sorted(Comparator.comparing(Path::toString))
                         .forEach(path -> {
-                            String zipEntryName = GENERATED_ROOT.relativize(path).toString().replace("\\", "/");
+                            String zipEntryName = generatedRoot.relativize(path).toString().replace("\\", "/");
                             try {
                                 zipOutputStream.putNextEntry(new ZipEntry(zipEntryName));
                                 zipOutputStream.write(Files.readAllBytes(path));
@@ -88,9 +99,31 @@ public class GeneratedFilesService {
         }
     }
 
+    private void clearGeneratedDirectory() throws IOException {
+        if (!Files.exists(generatedRoot)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(generatedRoot)) {
+            walk.sorted(Comparator.reverseOrder())
+                    .filter(path -> !path.equals(generatedRoot))
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+        } catch (RuntimeException e) {
+            if (e.getCause() instanceof IOException ioException) {
+                throw ioException;
+            }
+            throw e;
+        }
+    }
+
     private Path resolveSafe(String relativePath) {
-        Path resolved = GENERATED_ROOT.resolve(relativePath).normalize().toAbsolutePath();
-        Path root = GENERATED_ROOT.toAbsolutePath().normalize();
+        Path resolved = generatedRoot.resolve(relativePath).normalize().toAbsolutePath();
+        Path root = generatedRoot.toAbsolutePath().normalize();
         if (!resolved.startsWith(root)) throw new IllegalArgumentException("Invalid path");
         if (!Files.exists(resolved)) throw new IllegalArgumentException("File not found");
         return resolved;
